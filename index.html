@@ -16,6 +16,7 @@
 <link rel="apple-touch-icon-precomposed" href="https://isabellavfortunato.github.io/tempo-dos-projetos/apple-touch-icon.png">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="config.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -318,7 +319,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
       </button>`;
     }).join("") + `</div>`;
     h += col
-      ? `<p class="note">Sincronizado pelo código ${esc(codigoSalvo())}. <button class="btn ghost" data-sync>Ver ou trocar o código</button></p>`
+      ? `<p class="note">Conectado como ${esc(emailAtual())}. <button class="btn ghost" data-sair>Sair</button></p>`
       : `<p class="note">Os projetos ficam salvos neste aparelho.</p>`;
     if (avisoTxt) h += `<p class="note" role="status">${esc(avisoTxt)}</p>`;
     return h;
@@ -467,61 +468,83 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     }
   });
 
-  // ---------- sincronização pelo Firebase ----------
+  // ---------- login com o Google e dados no Firebase ----------
   const CK = "tempo-codigo";
-  let fs = null, parar = null;
-  function codigoSalvo() { try { return localStorage.getItem(CK) || ""; } catch (e) { return ""; } }
-  function sugerirCodigo() {
-    const l = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let c = "";
-    for (let i = 0; i < 8; i++) c += l[Math.floor(Math.random() * l.length)];
-    return c;
+  let fs = null, auth = null, usuario = null, parar = null, entrando = false, erroLogin = "";
+  function emailAtual() { return usuario ? (usuario.email || usuario.displayName || "sua conta Google") : ""; }
+  function codigoAntigo() { try { return localStorage.getItem(CK) || ""; } catch (e) { return ""; } }
+  const corpoDe = p => ({ nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null });
+
+  // na primeira entrada, traz os projetos que estavam no código de sincronização e neste aparelho
+  async function migrar(destino) {
+    const vazio = (await destino.limit(1).get()).empty;
+    if (!vazio) return;
+    const trazer = {};
+    const cod = codigoAntigo();
+    if (cod) {
+      try {
+        const antigos = await fs.collection("tempo-sincronizacao").doc(cod).collection("projetos").get();
+        antigos.forEach(d => { trazer[d.id] = normalizar({ id: d.id, ...d.data() }); });
+      } catch (e) {}
+    }
+    lerLocal().forEach(p => { if (!trazer[p.id]) trazer[p.id] = p; });
+    for (const id in trazer) await destino.doc(id).set(corpoDe(trazer[id]));
   }
-  function conectar(codigo) {
+
+  async function conectar(u) {
     if (parar) { parar(); parar = null; }
-    try { localStorage.setItem(CK, codigo); } catch (e) {}
-    const locais = lerLocal();
-    col = fs.collection("tempo-sincronizacao").doc(codigo).collection("projetos");
-    let primeira = true;
+    usuario = u;
+    const destino = fs.collection("usuarios").doc(u.uid).collection("projetos");
+    try { await migrar(destino); } catch (e) {}
+    col = destino;
     parar = col.onSnapshot(snap => {
-      if (primeira && snap.empty && locais.length) {
-        locais.forEach(p => col.doc(p.id).set({ nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null }));
-      }
-      primeira = false;
       projetos = snap.docs.map(d => normalizar({ id: d.id, ...(d.data() || {}) }));
       gravarLocal();
       carregado = true;
-      if (!editando && atual !== "__sync") render();
+      if (!editando && atual !== "__login") render();
     }, () => { aviso("Não consegui falar com o Firebase. Os dados deste aparelho continuam salvos."); });
+  }
+
+  async function entrar() {
+    erroLogin = ""; entrando = true; render();
+    const prov = new firebase.auth.GoogleAuthProvider();
+    prov.setCustomParameters({ prompt: "select_account" });
+    try {
+      await auth.signInWithPopup(prov);
+    } catch (e) {
+      if (e && (e.code === "auth/popup-blocked" || e.code === "auth/operation-not-supported-in-this-environment")) {
+        try { await auth.signInWithRedirect(prov); return; } catch (e2) { e = e2; }
+      }
+      entrando = false;
+      erroLogin = e && e.code === "auth/popup-closed-by-user" ? "A janela do Google foi fechada antes de terminar. Toque em Entrar com o Google para tentar de novo."
+        : e && e.code === "auth/unauthorized-domain" ? "Este endereço ainda não está autorizado no Firebase. Inclua isabellavfortunato.github.io em Authentication, Settings, Authorized domains."
+        : "Não consegui entrar com o Google" + (e && e.code ? " (" + e.code + ")" : "") + ". Tente de novo.";
+      render();
+    }
   }
 
   const renderBase = render;
   render = function () {
-    if (atual !== "__sync") return renderBase();
-    const c = codigoSalvo();
+    if (atual !== "__login") return renderBase();
     app.innerHTML = `
-      ${c ? `<div class="top"><button class="btn ghost" data-voltar>&larr; Projetos</button></div>` : ""}
-      <header><h1>Sincronização</h1>
-      <p class="sub">O código de sincronização liga este aparelho aos seus projetos. Use o mesmo código no iPhone e no computador para ver o mesmo histórico em todos eles.</p></header>
-      <form class="form sync" id="f-sync">
-        <label class="label" for="codigo">Código de sincronização</label>
-        <input class="field codigo" id="codigo" value="${esc(c || sugerirCodigo())}" maxlength="40" autocomplete="off" autocapitalize="characters">
-        <p class="help">${c ? "Para ligar este aparelho a outro histórico, troque o código e toque em Salvar." : "Se você já usa o aplicativo em outro aparelho, apague o código acima e digite o mesmo de lá. Se é a primeira vez, guarde este código e toque em Começar."}</p>
-        <div class="row"><button class="btn primary" type="submit">${c ? "Salvar" : "Começar"}</button></div>
-      </form>`;
+      <header><h1>Tempo dos projetos</h1>
+      <p class="sub">Entre com a sua conta Google para guardar os projetos e ver o mesmo histórico no celular e no computador.</p></header>
+      <div class="form">
+        <button class="btn primary" data-entrar ${entrando ? "disabled" : ""}>${entrando ? "Abrindo o Google..." : "Entrar com o Google"}</button>
+        ${erroLogin ? `<p class="help" role="status">${esc(erroLogin)}</p>` : `<p class="help">Use sempre a mesma conta Google em todos os aparelhos.</p>`}
+      </div>`;
   };
 
-  app.addEventListener("submit", e => {
-    if (e.target.id !== "f-sync") return;
-    e.preventDefault();
-    const v = document.getElementById("codigo").value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "");
-    if (v.length < 6) { aviso("Use um código com pelo menos 6 letras ou números."); return; }
-    atual = null; carregado = false;
-    conectar(v);
-    render();
-  });
   app.addEventListener("click", e => {
     const t = e.target.closest("button");
-    if (t && "sync" in t.dataset) { atual = "__sync"; render(); window.scrollTo(0, 0); }
+    if (!t) return;
+    if ("entrar" in t.dataset) entrar();
+    if ("sair" in t.dataset && auth) {
+      if (parar) { parar(); parar = null; }
+      col = null; projetos = [];
+      try { localStorage.removeItem(LS); } catch (er) {}
+      auth.signOut();
+    }
   });
 
   // ---------- início ----------
@@ -531,13 +554,19 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
       firebase.initializeApp(window.FIREBASE_CONFIG);
       fs = firebase.firestore();
       fs.enablePersistence({ synchronizeTabs: true }).catch(() => {});
-    } catch (e) { fs = null; }
+      auth = firebase.auth();
+      auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+    } catch (e) { fs = null; auth = null; }
   }
-  if (fs) {
-    const c = codigoSalvo();
-    projetos = lerLocal();
-    if (c) conectar(c); else { atual = "__sync"; }
-    carregado = !!projetos.length || !c;
+  if (fs && auth) {
+    projetos = lerLocal(); carregado = false;
+    auth.getRedirectResult().catch(e => { erroLogin = "Não consegui entrar com o Google" + (e && e.code ? " (" + e.code + ")" : "") + "."; render(); });
+    auth.onAuthStateChanged(u => {
+      entrando = false;
+      if (u) { if (atual === "__login") atual = null; conectar(u); }
+      else { usuario = null; col = null; atual = "__login"; }
+      render();
+    });
   } else {
     projetos = lerLocal(); carregado = true;
   }

@@ -1,5 +1,5 @@
 // Guarda os arquivos do aplicativo para ele abrir mesmo sem internet.
-const CACHE = "tempo-dos-projetos-v4";
+const CACHE = "tempo-dos-projetos-v5";
 const ARQUIVOS = ["./", "index.html", "config.js", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
