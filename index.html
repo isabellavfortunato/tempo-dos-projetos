@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tempo dos projetos</title>
+<meta name="theme-color" content="#f3f5f2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Tempo">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="config.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@400;500;600&display=swap">
+<style>
+/* Layout: coluna única estreita; lista de projetos na entrada, cronômetro ou timer grande e linha do percurso na página do projeto */
+:root {
+  --bg: #f3f5f2;
+  --surface: #ffffff;
+  --ink: #18231f;
+  --muted: #5d6b65;
+  --line: #d9e0dc;
+  --accent: #1e6b5f;
+  --accent-soft: #dcebe6;
+  --run: #3f8f5c;
+  --run-soft: #e4f3e8;
+  --time: #2f7a4c;
+  --done: #2f7d3a;
+  --done-soft: #dff0e1;
+  --danger: #a23b3b;
+  --display: "Bodoni Moda", Didot, "Bodoni 72", Georgia, "Times New Roman", serif;
+  --body: "Bodoni Moda", Didot, "Bodoni 72", Georgia, serif;
+  --mono: "Bodoni Moda", Didot, "Bodoni 72", Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111816; --surface: #19221f; --ink: #e8eee9; --muted: #9aa8a2; --line: #2b3732;
+    --accent: #6cc2b2; --accent-soft: #1f3631; --run: #9ad8ab; --run-soft: #1d3324; --time: #9ad8ab;
+    --done: #8fd39a; --done-soft: #1e3322; --danger: #e08585;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111816; --surface: #19221f; --ink: #e8eee9; --muted: #9aa8a2; --line: #2b3732;
+  --accent: #6cc2b2; --accent-soft: #1f3631; --run: #9ad8ab; --run-soft: #1d3324; --time: #9ad8ab;
+  --done: #8fd39a; --done-soft: #1e3322; --danger: #e08585;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  margin: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+main { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+h1, h2 { font-family: var(--display); font-weight: 500; margin: 0; text-wrap: balance; }
+h1 { font-size: 2.2rem; line-height: 1.1; color: var(--time); }
+h2 { font-size: 1.45rem; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.sub { color: var(--muted); margin: 4px 0 0; }
+.label { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 10px 16px; border-radius: 10px; font-weight: 500; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); padding: 8px 10px; }
+.btn.danger { color: var(--danger); }
+
+.form { display: flex; flex-direction: column; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.field { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); }
+.num { width: 76px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); text-align: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 8px 16px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+.help { color: var(--muted); font-size: .85rem; margin: 0; }
+
+.list { display: flex; flex-direction: column; gap: 10px; }
+.proj {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px;
+  text-align: left; width: 100%;
+}
+.proj:hover { border-color: var(--accent); }
+.proj .name { font-family: var(--display); font-weight: 500; font-size: 1.25rem; min-width: 0; overflow-wrap: anywhere; }
+.proj .meta { color: var(--muted); font-size: .85rem; }
+.proj .total { color: var(--time); font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 1.15rem; text-align: right; }
+.proj .total small { display: block; font-size: .72rem; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.tipo { font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin-right: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: .75rem; font-weight: 600; color: var(--run); background: var(--run-soft); padding: 2px 8px; border-radius: 99px; }
+.chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--run); }
+.chip.ok { color: var(--done); background: var(--done-soft); }
+.chip.ok::before { background: var(--done); }
+.empty { border: 1px dashed var(--line); border-radius: 14px; padding: 28px 20px; color: var(--muted); text-align: center; }
+
+.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.clock {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  border: 1px solid var(--line); background: var(--surface); border-radius: 20px; padding: 36px 16px 28px; width: 100%;
+  transition: background .2s, border-color .2s;
+}
+.clock.running { background: var(--run-soft); border-color: var(--run); }
+.clock.done { background: var(--done-soft); border-color: var(--done); }
+.clock .digits { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: clamp(2.6rem, 13vw, 4.6rem); font-weight: 500; line-height: 1; color: var(--time); }
+.clock .hint { color: var(--muted); font-size: .9rem; }
+.clock.running .hint, .clock .now { color: var(--run); }
+.clock.done .hint { color: var(--done); font-weight: 600; }
+.clock .now { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: .95rem; min-height: 1.4em; }
+.bar { width: min(320px, 100%); height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); }
+.clock.running .bar span { background: var(--run); }
+.clock.done .bar span { background: var(--done); }
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.card .v { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 1.15rem; margin-top: 2px; }
+
+.track { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.stop { display: grid; grid-template-columns: 22px 1fr auto; gap: 12px; position: relative; padding-bottom: 18px; }
+.stop:last-child { padding-bottom: 0; }
+.stop .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); background: var(--bg); margin: 6px 0 0 5px; position: relative; z-index: 1; }
+.stop:first-child .dot { background: var(--accent); }
+.stop:not(:last-child)::before { content: ""; position: absolute; left: 10px; top: 18px; bottom: 0; width: 2px; background: var(--line); }
+.stop .body { min-width: 0; }
+.stop .acc { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 1.1rem; }
+.stop .det { color: var(--muted); font-size: .85rem; }
+.stop .x { align-self: start; }
+
+.confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
+.note { color: var(--muted); font-size: .8rem; text-align: center; }
+@media (max-width: 420px) { .stats { grid-template-columns: 1fr 1fr; } .stats .card:last-child { grid-column: span 2; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.sync { display: flex; flex-direction: column; gap: 12px; }
+.codigo { font-size: 1.6rem; letter-spacing: .12em; text-align: center; color: var(--time); }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+
+<script>
+(function () {
+  const app = document.getElementById("app");
+  let db = null, col = null;
+  let projetos = [];   // [{id, nome, tipo:"cronometro"|"timer", meta(ms), criadoEm, sessoes:[{inicio,fim}], ativo}]
+  let atual = null, confirmar = null, carregado = false, editando = false;
+  let tipoNovo = "cronometro", tipoEdit = "cronometro";
+  const LS = "tempo-projetos-v1";
+
+  // ---------- formatação ----------
+  const pad = n => String(n).padStart(2, "0");
+  function relogio(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return pad(Math.floor(s / 3600)) + ":" + pad(Math.floor(s % 3600 / 60)) + ":" + pad(s % 60);
+  }
+  function curto(ms) {
+    if (ms < 60000) return Math.max(1, Math.round(ms / 1000)) + " s";
+    const m = Math.round(ms / 60000);
+    if (m < 60) return m + " min";
+    const h = Math.floor(m / 60), r = m % 60;
+    return h + " h" + (r ? " " + r + " min" : "");
+  }
+  const dataFmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const horaFmt = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const ehTimer = p => p.tipo === "timer" && p.meta > 0;
+
+  function feito(p) { let t = 0; for (const s of p.sessoes || []) t += s.fim - s.inicio; return t; }
+  function totalDe(p, agora) { return feito(p) + (p.ativo ? (agora || Date.now()) - p.ativo : 0); }
+  function mostrado(p, agora) { const t = totalDe(p, agora); return ehTimer(p) ? Math.max(0, p.meta - t) : t; }
+  function concluido(p) { return ehTimer(p) && feito(p) >= p.meta; }
+
+  // ---------- armazenamento ----------
+  function lerLocal() { try { return JSON.parse(localStorage.getItem(LS) || "[]").map(normalizar); } catch (e) { return []; } }
+  function gravarLocal() { try { localStorage.setItem(LS, JSON.stringify(projetos)); } catch (e) {} }
+  function normalizar(x) {
+    return { id: x.id, nome: String(x.nome || "Sem nome"), tipo: x.tipo === "timer" ? "timer" : "cronometro",
+      meta: Number(x.meta) || 0, criadoEm: Number(x.criadoEm) || 0,
+      sessoes: Array.isArray(x.sessoes) ? x.sessoes.filter(s => s && s.fim > s.inicio) : [],
+      ativo: x.ativo ? Number(x.ativo) : null };
+  }
+  async function salvar(p) {
+    const corpo = { nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null };
+    if (col) { try { await col.doc(p.id).set(corpo); } catch (e) { aviso("Não consegui salvar agora. Tente de novo em alguns segundos."); } }
+    else gravarLocal();
+  }
+  async function apagar(id) {
+    projetos = projetos.filter(p => p.id !== id);
+    if (col) { try { await col.doc(id).delete(); } catch (e) { aviso("Não consegui excluir agora."); } }
+    else gravarLocal();
+  }
+  let avisoTxt = "";
+  function aviso(t) { avisoTxt = t; render(); setTimeout(() => { avisoTxt = ""; render(); }, 4000); }
+
+  // ---------- som ao terminar o timer ----------
+  let audio = null;
+  function prepararSom() { try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  function tocar() {
+    if (!audio) return;
+    try {
+      [0, .35, .7].forEach(d => {
+        const o = audio.createOscillator(), g = audio.createGain();
+        o.frequency.value = 880; o.connect(g); g.connect(audio.destination);
+        const t = audio.currentTime + d;
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2, t + .02); g.gain.exponentialRampToValueAtTime(0.0001, t + .3);
+        o.start(t); o.stop(t + .32);
+      });
+    } catch (e) {}
+  }
+
+  // ---------- ações ----------
+  const novoId = () => "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  function lerMeta(prefixo) {
+    const h = Math.max(0, parseInt(document.getElementById(prefixo + "-h").value, 10) || 0);
+    const m = Math.max(0, parseInt(document.getElementById(prefixo + "-m").value, 10) || 0);
+    return (h * 60 + m) * 60000;
+  }
+
+  async function criar() {
+    const el = document.getElementById("novo");
+    const nome = el.value.trim();
+    if (!nome) { el.focus(); return; }
+    let meta = 0;
+    if (tipoNovo === "timer") { meta = lerMeta("nm"); if (!meta) { aviso("Defina quanto tempo o timer deve ter."); return; } }
+    const p = { id: novoId(), nome, tipo: tipoNovo, meta, criadoEm: Date.now(), sessoes: [], ativo: null };
+    projetos.push(p);
+    tipoNovo = "cronometro";
+    render();
+    await salvar(p);
+  }
+
+  async function encerrar(p, fim) {
+    if (fim - p.ativo >= 1000) p.sessoes = [...p.sessoes, { inicio: p.ativo, fim }];
+    p.ativo = null;
+  }
+
+  async function alternar(p) {
+    prepararSom();
+    const agora = Date.now();
+    if (p.ativo) { encerrar(p, agora); }
+    else {
+      if (concluido(p)) { aviso("Este timer já chegou ao fim. Aumente o tempo em Editar para continuar."); return; }
+      p.ativo = agora;
+    }
+    render();
+    await salvar(p);
+  }
+
+  // timer que chega a zero para sozinho, registrando a parada no ponto exato
+  async function verificarFim(agora) {
+    for (const p of projetos) {
+      if (p.ativo && ehTimer(p) && totalDe(p, agora) >= p.meta) {
+        encerrar(p, p.ativo + (p.meta - feito(p)));
+        tocar();
+        render();
+        await salvar(p);
+      }
+    }
+  }
+
+  // ---------- telas ----------
+  function camposMeta(prefixo, ms) {
+    const h = Math.floor(ms / 3600000), m = Math.round(ms % 3600000 / 60000);
+    return `<div class="row">
+      <input class="num" id="${prefixo}-h" type="number" min="0" max="999" value="${ms ? h : ""}" placeholder="0" aria-label="Horas"> <span>h</span>
+      <input class="num" id="${prefixo}-m" type="number" min="0" max="59" value="${ms ? m : ""}" placeholder="0" aria-label="Minutos"> <span>min</span>
+    </div>`;
+  }
+  function seletor(nome, valor) {
+    return `<div class="seg" role="group" aria-label="Tipo">
+      <button type="button" data-${nome}="cronometro" aria-pressed="${valor === "cronometro"}">Cronômetro</button>
+      <button type="button" data-${nome}="timer" aria-pressed="${valor === "timer"}">Timer</button>
+    </div>`;
+  }
+
+  function telaLista() {
+    const agora = Date.now();
+    const ordenados = [...projetos].sort((a, b) => (b.ativo ? 1 : 0) - (a.ativo ? 1 : 0) || a.criadoEm - b.criadoEm);
+    let h = `
+      <header>
+        <h1>Tempo dos projetos</h1>
+        <p class="sub">Toque num projeto para abrir o cronômetro ou o timer e ver o percurso de cada parada.</p>
+      </header>
+      <form class="form" id="f-add">
+        <div class="row">
+          <input class="field" id="novo" placeholder="Nome do novo projeto, por exemplo Ler um livro" autocomplete="off" maxlength="80" aria-label="Nome do novo projeto">
+        </div>
+        <div class="row">${seletor("tipo-novo", tipoNovo)}</div>
+        ${tipoNovo === "timer"
+          ? `<p class="help">O timer começa no tempo que você definir e vai descendo a cada sessão até chegar a zero.</p>${camposMeta("nm", 0)}`
+          : `<p class="help">O cronômetro começa do zero e vai somando o tempo de todas as sessões, sem limite.</p>`}
+        <div class="row"><button class="btn primary" type="submit">Criar projeto</button></div>
+      </form>`;
+    if (!carregado) h += `<div class="empty">Carregando seus projetos...</div>`;
+    else if (!ordenados.length) h += `<div class="empty">Você ainda não tem projetos. Escreva o nome acima, escolha entre cronômetro e timer e toque em Criar projeto.</div>`;
+    else h += `<div class="list">` + ordenados.map(p => {
+      const n = p.sessoes.length;
+      const estado = p.ativo ? `<span class="chip">Contando agora</span>`
+        : concluido(p) ? `<span class="chip ok">Concluído</span>`
+        : n ? `${n} ${n === 1 ? "parada" : "paradas"}` : "Ainda sem tempo registrado";
+      return `<button class="proj" data-abrir="${p.id}">
+        <span><span class="name">${esc(p.nome)}</span><br><span class="meta"><span class="tipo">${ehTimer(p) ? "Timer" : "Cronômetro"}</span>${estado}</span></span>
+        <span class="total"><span data-total="${p.id}">${relogio(mostrado(p, agora))}</span><small>${ehTimer(p) ? "faltam" : "acumulado"}</small></span>
+      </button>`;
+    }).join("") + `</div>`;
+    h += col
+      ? `<p class="note">Sincronizado pelo código ${esc(codigoSalvo())}. <button class="btn ghost" data-sync>Ver ou trocar o código</button></p>`
+      : `<p class="note">Os projetos ficam salvos neste aparelho.</p>`;
+    if (avisoTxt) h += `<p class="note" role="status">${esc(avisoTxt)}</p>`;
+    return h;
+  }
+
+  function telaProjeto(p) {
+    const agora = Date.now();
+    const timer = ehTimer(p);
+    const total = totalDe(p, agora);
+    const fim = concluido(p);
+    const n = p.sessoes.length;
+    const dias = new Set(p.sessoes.map(s => dataFmt.format(s.inicio))).size;
+    const media = n ? curto(feito(p) / n) : "0 min";
+    const pct = timer ? Math.min(100, total / p.meta * 100) : 0;
+
+    let acc = 0;
+    const paradas = p.sessoes.map((s, i) => { acc += s.fim - s.inicio; return { ...s, i, acc }; }).reverse();
+
+    const dica = p.ativo ? "Contando. Toque nos números para parar."
+      : fim ? "Timer concluído. Para continuar, aumente o tempo em Editar."
+      : n ? "Toque nos números para continuar." : "Toque nos números para começar.";
+
+    let h = `
+      <div class="top">
+        <button class="btn ghost" data-voltar>&larr; Projetos</button>
+        <div class="confirm">
+          ${confirmar === p.id
+            ? `<span>Excluir este projeto e todo o histórico?</span>
+               <button class="btn danger" data-excluir-sim="${p.id}">Excluir</button>
+               <button class="btn ghost" data-cancelar>Cancelar</button>`
+            : `<button class="btn ghost" data-editar>Editar</button>
+               <button class="btn ghost" data-excluir="${p.id}">Excluir</button>`}
+        </div>
+      </div>
+      ${editando
+        ? `<form class="form" id="f-edit">
+            <input class="field" id="nome-edit" value="${esc(p.nome)}" maxlength="80" aria-label="Nome do projeto">
+            <div class="row">${seletor("tipo-edit", tipoEdit)}</div>
+            ${tipoEdit === "timer" ? `<p class="help">Tempo total do timer. O tempo que você já fez continua contando para chegar a ele.</p>${camposMeta("em", p.meta)}` : `<p class="help">Como cronômetro, o projeto soma todo o tempo, sem limite.</p>`}
+            <div class="row"><button class="btn primary" type="submit">Salvar</button><button class="btn ghost" type="button" data-fechar-edit>Cancelar</button></div>
+          </form>`
+        : `<div><span class="tipo">${timer ? "Timer" : "Cronômetro"}</span><h1>${esc(p.nome)}</h1></div>`}
+      <button class="clock ${p.ativo ? "running" : fim ? "done" : ""}" data-alternar aria-label="${p.ativo ? "Pausar" : "Iniciar"}">
+        <span class="label">${timer ? "Tempo restante" : "Tempo acumulado"}</span>
+        <span class="digits" id="digits">${relogio(mostrado(p, agora))}</span>
+        ${timer ? `<span class="bar"><span id="barra" style="width:${pct}%"></span></span>` : ""}
+        <span class="now" id="now">${p.ativo ? "Esta sessão: " + relogio(agora - p.ativo) : ""}</span>
+        <span class="hint">${dica}</span>
+      </button>
+      <div class="stats">
+        ${timer
+          ? `<div class="card"><div class="label">Tempo total</div><div class="v">${curto(p.meta)}</div></div>
+             <div class="card"><div class="label">Já feito</div><div class="v" id="feito">${relogio(Math.min(total, p.meta))}</div></div>
+             <div class="card"><div class="label">Paradas</div><div class="v">${n}</div></div>`
+          : `<div class="card"><div class="label">Paradas</div><div class="v">${n}</div></div>
+             <div class="card"><div class="label">Dias com registro</div><div class="v">${dias}</div></div>
+             <div class="card"><div class="label">Média por sessão</div><div class="v">${media}</div></div>`}
+      </div>
+      <section>
+        <h2>Percurso</h2>
+        <p class="sub" style="margin-bottom:16px">${timer ? "Cada parada mostra quanto faltava naquele momento, quanto já tinha sido feito e quanto durou a sessão." : "Cada parada mostra o total acumulado naquele momento e quanto durou a sessão."}</p>
+        ${n ? `<ol class="track">` + paradas.map(s => `
+          <li class="stop">
+            <span class="dot"></span>
+            <div class="body">
+              <div class="acc">${timer ? (s.acc >= p.meta ? "Chegou ao fim" : "Parou faltando " + relogio(p.meta - s.acc)) : "Parou em " + relogio(s.acc)}</div>
+              <div class="det">Parada ${s.i + 1} · ${dataFmt.format(s.inicio)}, das ${horaFmt.format(s.inicio)} às ${horaFmt.format(s.fim)} · sessão de ${curto(s.fim - s.inicio)}${timer ? " · feito até aqui " + relogio(s.acc) : ""}</div>
+            </div>
+            ${confirmar === "s" + s.i
+              ? `<span class="confirm"><button class="btn danger" data-sessao-sim="${s.i}">Apagar</button><button class="btn ghost" data-cancelar>Não</button></span>`
+              : `<button class="btn ghost x" data-sessao="${s.i}" aria-label="Apagar a parada ${s.i + 1}">Apagar</button>`}
+          </li>`).join("") + `</ol>`
+          : `<div class="empty">As paradas aparecem aqui assim que você iniciar e pausar pela primeira vez.</div>`}
+      </section>`;
+    if (avisoTxt) h += `<p class="note" role="status">${esc(avisoTxt)}</p>`;
+    return h;
+  }
+
+  function render() {
+    const p = projetos.find(x => x.id === atual);
+    if (atual && !p) atual = null;
+    const ativo = document.activeElement && document.activeElement.id;
+    const guardados = {};
+    for (const id of ["novo", "nm-h", "nm-m", "nome-edit", "em-h", "em-m"]) { const el = document.getElementById(id); if (el) guardados[id] = el.value; }
+    app.innerHTML = p ? telaProjeto(p) : telaLista();
+    for (const id in guardados) { const el = document.getElementById(id); if (el) el.value = guardados[id]; }
+    if (ativo) { const el = document.getElementById(ativo); if (el) el.focus(); }
+  }
+
+  setInterval(() => {
+    const agora = Date.now();
+    verificarFim(agora);
+    const p = projetos.find(x => x.id === atual);
+    if (p) {
+      if (!p.ativo) return;
+      const d = document.getElementById("digits"), nw = document.getElementById("now"), b = document.getElementById("barra"), f = document.getElementById("feito");
+      if (d) d.textContent = relogio(mostrado(p, agora));
+      if (nw) nw.textContent = "Esta sessão: " + relogio(agora - p.ativo);
+      if (b && ehTimer(p)) b.style.width = Math.min(100, totalDe(p, agora) / p.meta * 100) + "%";
+      if (f && ehTimer(p)) f.textContent = relogio(Math.min(totalDe(p, agora), p.meta));
+    } else {
+      for (const q of projetos) if (q.ativo) {
+        const el = app.querySelector(`[data-total="${q.id}"]`);
+        if (el) el.textContent = relogio(mostrado(q, agora));
+      }
+    }
+  }, 500);
+
+  // ---------- eventos ----------
+  app.addEventListener("submit", e => {
+    e.preventDefault();
+    if (e.target.id === "f-add") { criar(); }
+    if (e.target.id === "f-edit") {
+      const p = projetos.find(x => x.id === atual);
+      if (!p) return;
+      const v = document.getElementById("nome-edit").value.trim();
+      let meta = p.meta;
+      if (tipoEdit === "timer") { meta = lerMeta("em"); if (!meta) { aviso("Defina quanto tempo o timer deve ter."); return; } }
+      if (v) p.nome = v;
+      p.tipo = tipoEdit; p.meta = tipoEdit === "timer" ? meta : p.meta;
+      editando = false;
+      render(); salvar(p);
+    }
+  });
+
+  app.addEventListener("click", e => {
+    const t = e.target.closest("button");
+    if (!t) return;
+    const p = projetos.find(x => x.id === atual);
+    const d = t.dataset;
+    if (d.tipoNovo) { tipoNovo = d.tipoNovo; render(); }
+    else if (d.tipoEdit) { tipoEdit = d.tipoEdit; render(); }
+    else if (d.abrir) { atual = d.abrir; confirmar = null; editando = false; render(); window.scrollTo(0, 0); }
+    else if ("voltar" in d) { atual = null; confirmar = null; editando = false; render(); }
+    else if ("alternar" in d && p) alternar(p);
+    else if ("editar" in d && p) { editando = true; tipoEdit = ehTimer(p) ? "timer" : "cronometro"; confirmar = null; render(); }
+    else if ("fecharEdit" in d) { editando = false; render(); }
+    else if (d.excluir) { confirmar = d.excluir; render(); }
+    else if (d.excluirSim) { const id = d.excluirSim; atual = null; confirmar = null; apagar(id).then(render); render(); }
+    else if ("cancelar" in d) { confirmar = null; render(); }
+    else if (d.sessao) { confirmar = "s" + d.sessao; render(); }
+    else if (d.sessaoSim && p) {
+      const i = Number(d.sessaoSim);
+      p.sessoes = p.sessoes.filter((_, k) => k !== i);
+      confirmar = null; render(); salvar(p);
+    }
+  });
+
+  // ---------- sincronização pelo Firebase ----------
+  const CK = "tempo-codigo";
+  let fs = null, parar = null;
+  function codigoSalvo() { try { return localStorage.getItem(CK) || ""; } catch (e) { return ""; } }
+  function sugerirCodigo() {
+    const l = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let c = "";
+    for (let i = 0; i < 8; i++) c += l[Math.floor(Math.random() * l.length)];
+    return c;
+  }
+  function conectar(codigo) {
+    if (parar) { parar(); parar = null; }
+    try { localStorage.setItem(CK, codigo); } catch (e) {}
+    const locais = lerLocal();
+    col = fs.collection("tempo-sincronizacao").doc(codigo).collection("projetos");
+    let primeira = true;
+    parar = col.onSnapshot(snap => {
+      if (primeira && snap.empty && locais.length) {
+        locais.forEach(p => col.doc(p.id).set({ nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null }));
+      }
+      primeira = false;
+      projetos = snap.docs.map(d => normalizar({ id: d.id, ...(d.data() || {}) }));
+      gravarLocal();
+      carregado = true;
+      if (!editando && atual !== "__sync") render();
+    }, () => { aviso("Não consegui falar com o Firebase. Os dados deste aparelho continuam salvos."); });
+  }
+
+  const renderBase = render;
+  render = function () {
+    if (atual !== "__sync") return renderBase();
+    const c = codigoSalvo();
+    app.innerHTML = `
+      ${c ? `<div class="top"><button class="btn ghost" data-voltar>&larr; Projetos</button></div>` : ""}
+      <header><h1>Sincronização</h1>
+      <p class="sub">O código de sincronização liga este aparelho aos seus projetos. Use o mesmo código no iPhone e no computador para ver o mesmo histórico em todos eles.</p></header>
+      <form class="form sync" id="f-sync">
+        <label class="label" for="codigo">Código de sincronização</label>
+        <input class="field codigo" id="codigo" value="${esc(c || sugerirCodigo())}" maxlength="40" autocomplete="off" autocapitalize="characters">
+        <p class="help">${c ? "Para ligar este aparelho a outro histórico, troque o código e toque em Salvar." : "Se você já usa o aplicativo em outro aparelho, apague o código acima e digite o mesmo de lá. Se é a primeira vez, guarde este código e toque em Começar."}</p>
+        <div class="row"><button class="btn primary" type="submit">${c ? "Salvar" : "Começar"}</button></div>
+      </form>`;
+  };
+
+  app.addEventListener("submit", e => {
+    if (e.target.id !== "f-sync") return;
+    e.preventDefault();
+    const v = document.getElementById("codigo").value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "");
+    if (v.length < 6) { aviso("Use um código com pelo menos 6 letras ou números."); return; }
+    atual = null; carregado = false;
+    conectar(v);
+    render();
+  });
+  app.addEventListener("click", e => {
+    const t = e.target.closest("button");
+    if (t && "sync" in t.dataset) { atual = "__sync"; render(); window.scrollTo(0, 0); }
+  });
+
+  // ---------- início ----------
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  if (window.firebase && window.FIREBASE_CONFIG) {
+    try {
+      firebase.initializeApp(window.FIREBASE_CONFIG);
+      fs = firebase.firestore();
+      fs.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+    } catch (e) { fs = null; }
+  }
+  if (fs) {
+    const c = codigoSalvo();
+    projetos = lerLocal();
+    if (c) conectar(c); else { atual = "__sync"; }
+    carregado = !!projetos.length || !c;
+  } else {
+    projetos = lerLocal(); carregado = true;
+  }
+  render();
+})();
+</script>
+</body>
+</html>

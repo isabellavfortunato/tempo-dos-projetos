@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Aplicativo Tempo dos projetos: cada código de sincronização guarda os seus projetos.
+    match /tempo-sincronizacao/{codigo}/projetos/{projeto} {
+      allow read, write: if codigo.size() >= 6;
+    }
+  }
+}
