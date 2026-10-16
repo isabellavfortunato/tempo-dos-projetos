@@ -145,6 +145,13 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
 .note { color: var(--muted); font-size: .8rem; text-align: center; }
 @media (max-width: 420px) { .stats { grid-template-columns: 1fr 1fr; } .stats .card:last-child { grid-column: span 2; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.escolha { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.opcao { display: flex; flex-direction: column; gap: 6px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; min-width: 0; }
+.opcao:hover, .opcao.on { border-color: var(--accent); }
+.opcao.on { background: var(--accent-soft); }
+.opcao-t { font-size: 1.3rem; color: var(--time); }
+.opcao-d { color: var(--muted); font-size: .9rem; }
+@media (max-width: 420px) { .escolha { grid-template-columns: 1fr; } }
 .sync { display: flex; flex-direction: column; gap: 12px; }
 .codigo { font-size: 1.6rem; letter-spacing: .12em; text-align: center; color: var(--time); }
 [hidden] { display: none !important; }
@@ -159,7 +166,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
   let db = null, col = null;
   let projetos = [];   // [{id, nome, tipo:"cronometro"|"timer", meta(ms), criadoEm, sessoes:[{inicio,fim}], ativo}]
   let atual = null, confirmar = null, carregado = false, editando = false;
-  let tipoNovo = "cronometro", tipoEdit = "cronometro";
+  let tipoEdit = "cronometro", escolhendoTimer = false;
   const LS = "tempo-projetos-v1";
 
   // ---------- formatação ----------
@@ -189,7 +196,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
   function lerLocal() { try { return JSON.parse(localStorage.getItem(LS) || "[]").map(normalizar); } catch (e) { return []; } }
   function gravarLocal() { try { localStorage.setItem(LS, JSON.stringify(projetos)); } catch (e) {} }
   function normalizar(x) {
-    return { id: x.id, nome: String(x.nome || "Sem nome"), tipo: x.tipo === "timer" ? "timer" : "cronometro",
+    return { id: x.id, nome: String(x.nome || "Sem nome"), tipo: x.tipo === "timer" ? "timer" : x.tipo === "cronometro" ? "cronometro" : (Array.isArray(x.sessoes) && x.sessoes.length ? "cronometro" : ""),
       meta: Number(x.meta) || 0, criadoEm: Number(x.criadoEm) || 0,
       sessoes: Array.isArray(x.sessoes) ? x.sessoes.filter(s => s && s.fim > s.inicio) : [],
       ativo: x.ativo ? Number(x.ativo) : null };
@@ -235,12 +242,11 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     const el = document.getElementById("novo");
     const nome = el.value.trim();
     if (!nome) { el.focus(); return; }
-    let meta = 0;
-    if (tipoNovo === "timer") { meta = lerMeta("nm"); if (!meta) { aviso("Defina quanto tempo o timer deve ter."); return; } }
-    const p = { id: novoId(), nome, tipo: tipoNovo, meta, criadoEm: Date.now(), sessoes: [], ativo: null };
+    const p = { id: novoId(), nome, tipo: "", meta: 0, criadoEm: Date.now(), sessoes: [], ativo: null };
     projetos.push(p);
-    tipoNovo = "cronometro";
-    render();
+    el.value = "";
+    atual = p.id; escolhendoTimer = false;
+    render(); window.scrollTo(0, 0);
     await salvar(p);
   }
 
@@ -300,21 +306,19 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
         <div class="row">
           <input class="field" id="novo" placeholder="Nome do novo projeto, por exemplo Ler um livro" autocomplete="off" maxlength="80" aria-label="Nome do novo projeto">
         </div>
-        <div class="row">${seletor("tipo-novo", tipoNovo)}</div>
-        ${tipoNovo === "timer"
-          ? `<p class="help">O timer começa no tempo que você definir e vai descendo a cada sessão até chegar a zero.</p>${camposMeta("nm", 0)}`
-          : `<p class="help">O cronômetro começa do zero e vai somando o tempo de todas as sessões, sem limite.</p>`}
+        <p class="help">Depois de criar, você escolhe dentro do projeto se ele funciona como cronômetro ou como timer.</p>
         <div class="row"><button class="btn primary" type="submit">Criar projeto</button></div>
       </form>`;
     if (!carregado) h += `<div class="empty">Carregando seus projetos...</div>`;
-    else if (!ordenados.length) h += `<div class="empty">Você ainda não tem projetos. Escreva o nome acima, escolha entre cronômetro e timer e toque em Criar projeto.</div>`;
+    else if (!ordenados.length) h += `<div class="empty">Você ainda não tem projetos. Escreva o nome acima e toque em Criar projeto.</div>`;
     else h += `<div class="list">` + ordenados.map(p => {
       const n = p.sessoes.length;
-      const estado = p.ativo ? `<span class="chip">Contando agora</span>`
+      const estado = !p.tipo ? `<span class="chip">Escolher cronômetro ou timer</span>`
+        : p.ativo ? `<span class="chip">Contando agora</span>`
         : concluido(p) ? `<span class="chip ok">Concluído</span>`
         : n ? `${n} ${n === 1 ? "parada" : "paradas"}` : "Ainda sem tempo registrado";
       return `<button class="proj" data-abrir="${p.id}">
-        <span><span class="name">${esc(p.nome)}</span><br><span class="meta"><span class="tipo">${ehTimer(p) ? "Timer" : "Cronômetro"}</span>${estado}</span></span>
+        <span><span class="name">${esc(p.nome)}</span><br><span class="meta">${p.tipo ? `<span class="tipo">${ehTimer(p) ? "Timer" : "Cronômetro"}</span>` : ""}${estado}</span></span>
         <span class="total"><span data-total="${p.id}">${relogio(mostrado(p, agora))}</span><small>${ehTimer(p) ? "faltam" : "acumulado"}</small></span>
       </button>`;
     }).join("") + `</div>`;
@@ -325,7 +329,35 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     return h;
   }
 
+  function telaEscolha(p) {
+    return `
+      <div class="top"><button class="btn ghost" data-voltar>&larr; Projetos</button>
+        <div class="confirm">${confirmar === p.id
+          ? `<span>Excluir este projeto?</span><button class="btn danger" data-excluir-sim="${p.id}">Excluir</button><button class="btn ghost" data-cancelar>Cancelar</button>`
+          : `<button class="btn ghost" data-excluir="${p.id}">Excluir</button>`}</div>
+      </div>
+      <header><span class="tipo">Novo projeto</span><h1>${esc(p.nome)}</h1>
+        <p class="sub">Como este projeto vai contar o tempo?</p></header>
+      <div class="escolha">
+        <button class="opcao" data-escolher="cronometro">
+          <span class="opcao-t">Cronômetro</span>
+          <span class="opcao-d">Começa do zero e vai somando o tempo de todas as sessões, sem limite.</span>
+        </button>
+        <button class="opcao ${escolhendoTimer ? "on" : ""}" data-escolher="timer" aria-expanded="${escolhendoTimer}">
+          <span class="opcao-t">Timer</span>
+          <span class="opcao-d">Começa no tempo que você definir e vai descendo a cada sessão até chegar a zero.</span>
+        </button>
+      </div>
+      ${escolhendoTimer ? `<form class="form" id="f-escolha">
+        <label class="label">Tempo total do timer</label>
+        ${camposMeta("es", 0)}
+        <div class="row"><button class="btn primary" type="submit">Começar com timer</button></div>
+      </form>` : ""}
+      ${avisoTxt ? `<p class="note" role="status">${esc(avisoTxt)}</p>` : ""}`;
+  }
+
   function telaProjeto(p) {
+    if (!p.tipo) return telaEscolha(p);
     const agora = Date.now();
     const timer = ehTimer(p);
     const total = totalDe(p, agora);
@@ -403,7 +435,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     if (atual && !p) atual = null;
     const ativo = document.activeElement && document.activeElement.id;
     const guardados = {};
-    for (const id of ["novo", "nm-h", "nm-m", "nome-edit", "em-h", "em-m"]) { const el = document.getElementById(id); if (el) guardados[id] = el.value; }
+    for (const id of ["novo", "es-h", "es-m", "nome-edit", "em-h", "em-m"]) { const el = document.getElementById(id); if (el) guardados[id] = el.value; }
     app.innerHTML = p ? telaProjeto(p) : telaLista();
     for (const id in guardados) { const el = document.getElementById(id); if (el) el.value = guardados[id]; }
     if (ativo) { const el = document.getElementById(ativo); if (el) el.focus(); }
@@ -432,6 +464,14 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
   app.addEventListener("submit", e => {
     e.preventDefault();
     if (e.target.id === "f-add") { criar(); }
+    if (e.target.id === "f-escolha") {
+      const p = projetos.find(x => x.id === atual);
+      if (!p) return;
+      const meta = lerMeta("es");
+      if (!meta) { aviso("Defina quanto tempo o timer deve ter."); return; }
+      p.tipo = "timer"; p.meta = meta; escolhendoTimer = false;
+      render(); salvar(p);
+    }
     if (e.target.id === "f-edit") {
       const p = projetos.find(x => x.id === atual);
       if (!p) return;
@@ -450,9 +490,12 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     if (!t) return;
     const p = projetos.find(x => x.id === atual);
     const d = t.dataset;
-    if (d.tipoNovo) { tipoNovo = d.tipoNovo; render(); }
+    if (d.escolher && p) {
+      if (d.escolher === "cronometro") { p.tipo = "cronometro"; p.meta = 0; escolhendoTimer = false; render(); salvar(p); }
+      else { escolhendoTimer = true; render(); const el = document.getElementById("es-h"); if (el) el.focus(); }
+    }
     else if (d.tipoEdit) { tipoEdit = d.tipoEdit; render(); }
-    else if (d.abrir) { atual = d.abrir; confirmar = null; editando = false; render(); window.scrollTo(0, 0); }
+    else if (d.abrir) { atual = d.abrir; confirmar = null; editando = false; escolhendoTimer = false; render(); window.scrollTo(0, 0); }
     else if ("voltar" in d) { atual = null; confirmar = null; editando = false; render(); }
     else if ("alternar" in d && p) alternar(p);
     else if ("editar" in d && p) { editando = true; tipoEdit = ehTimer(p) ? "timer" : "cronometro"; confirmar = null; render(); }
