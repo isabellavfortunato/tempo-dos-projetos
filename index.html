@@ -17,7 +17,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 <script src="config.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -153,6 +152,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
 .opcao-t { font-size: 1.3rem; color: var(--time); }
 .opcao-d { color: var(--muted); font-size: .9rem; }
 @media (max-width: 420px) { .escolha { grid-template-columns: 1fr; } }
+.atalho { justify-content: center; text-align: center; flex-direction: column; }
 .sync { display: flex; flex-direction: column; gap: 12px; }
 .codigo { font-size: 1.6rem; letter-spacing: .12em; text-align: center; color: var(--time); }
 [hidden] { display: none !important; }
@@ -206,11 +206,9 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     const corpo = { nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null };
     if (col) { try { await col.doc(p.id).set(corpo); } catch (e) { aviso("Não consegui salvar agora. Tente de novo em alguns segundos."); } }
     else gravarLocal();
-    sincronizarAviso(p);
   }
   async function apagar(id) {
     projetos = projetos.filter(p => p.id !== id);
-    sincronizarAviso({ id, ativo: null });
     if (col) { try { await col.doc(id).delete(); } catch (e) { aviso("Não consegui excluir agora."); } }
     else gravarLocal();
   }
@@ -260,7 +258,6 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
 
   async function alternar(p) {
     prepararSom();
-    if (!p.ativo && ehTimer(p)) pedirNotificacoes(false);
     const agora = Date.now();
     if (p.ativo) { encerrar(p, agora); }
     else {
@@ -283,40 +280,14 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     }
   }
 
-  // ---------- aviso na tela bloqueada (push pelo Firebase) ----------
-  const ultimoAviso = {};
-  function sincronizarAviso(p) {
-    if (!fs || !usuario) return;
-    const id = usuario.uid + "_" + p.id;
-    const quando = p.ativo && ehTimer(p) ? p.ativo + Math.max(0, p.meta - feito(p)) : null;
-    if (ultimoAviso[id] === quando) return;
-    ultimoAviso[id] = quando;
-    const ref = fs.collection("avisos").doc(id);
-    (quando ? ref.set({ uid: usuario.uid, projeto: p.id, nome: p.nome, quando }) : ref.delete()).catch(() => {});
-  }
-
-  const suportaPush = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-  const instalado = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
-  function estadoNotificacao() { return suportaPush() ? Notification.permission : "indisponivel"; }
-
-  async function registrarAparelho() {
-    if (!fs || !usuario || !window.firebase || !firebase.messaging || estadoNotificacao() !== "granted") return;
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      const token = await firebase.messaging().getToken({ serviceWorkerRegistration: reg });
-      if (token) await fs.collection("usuarios").doc(usuario.uid).collection("aparelhos").doc(token.slice(-60))
-        .set({ token, atualizadoEm: Date.now(), agente: navigator.userAgent.slice(0, 120) });
-    } catch (e) { console.warn("push", e); }
-  }
-
-  async function pedirNotificacoes(explicito) {
-    if (!suportaPush()) { if (explicito) aviso(instalado() ? "Este aparelho não aceita avisos." : "Para receber avisos no iPhone, abra o aplicativo pelo ícone da tela inicial."); return; }
-    if (Notification.permission === "default") {
-      try { await Notification.requestPermission(); } catch (e) {}
-    }
-    if (Notification.permission === "granted") { await registrarAparelho(); if (explicito) aviso("Avisos ativados. Quando um timer terminar, você recebe uma mensagem na tela bloqueada."); }
-    else if (explicito && Notification.permission === "denied") aviso("Os avisos estão bloqueados. Libere em Ajustes, Notificações, Tempo.");
-    render();
+  // ---------- aviso no iPhone pelo aplicativo Atalhos ----------
+  // O atalho "Aviso do Tempo" recebe "segundos|nome do projeto" e cria um lembrete com alerta para o fim do timer.
+  const NOME_ATALHO = "Aviso do Tempo";
+  function criarAvisoNoIphone(p) {
+    if (!p.ativo || !ehTimer(p)) return;
+    const segundos = Math.max(1, Math.round((p.meta - totalDe(p, Date.now())) / 1000));
+    const texto = segundos + "|" + p.nome.replace(/\|/g, "/");
+    location.href = "shortcuts://run-shortcut?name=" + encodeURIComponent(NOME_ATALHO) + "&input=text&text=" + encodeURIComponent(texto);
   }
 
   // ---------- telas ----------
@@ -363,8 +334,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
       </button>`;
     }).join("") + `</div>`;
     h += col
-      ? `${estadoNotificacao() !== "granted" ? `<p class="note"><button class="btn" data-avisos>Ativar avisos na tela bloqueada</button></p>` : ""}
-         <p class="note">Conectado como ${esc(emailAtual())}. <button class="btn ghost" data-sair>Sair</button></p>`
+      ? `<p class="note">Conectado como ${esc(emailAtual())}. <button class="btn ghost" data-sair>Sair</button></p>`
       : `<p class="note">Os projetos ficam salvos neste aparelho.</p>`;
     if (avisoTxt) h += `<p class="note" role="status">${esc(avisoTxt)}</p>`;
     return h;
@@ -442,6 +412,8 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
         <span class="now" id="now">${p.ativo ? "Esta sessão: " + relogio(agora - p.ativo) : ""}</span>
         <span class="hint">${dica}</span>
       </button>
+      ${timer && p.ativo ? `<div class="row atalho"><button class="btn" data-atalho>Criar aviso no iPhone</button>
+        <span class="help">Cria um lembrete para o fim do timer, que aparece na tela bloqueada. Se pausar antes, apague o lembrete no app Lembretes.</span></div>` : ""}
       <div class="stats">
         ${timer
           ? `<div class="card"><div class="label">Tempo total</div><div class="v">${curto(p.meta)}</div></div>
@@ -581,7 +553,6 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     const destino = fs.collection("usuarios").doc(u.uid).collection("projetos");
     try { await migrar(destino); } catch (e) {}
     col = destino;
-    registrarAparelho();
     parar = col.onSnapshot(snap => {
       projetos = snap.docs.map(d => normalizar({ id: d.id, ...(d.data() || {}) }));
       gravarLocal();
@@ -625,7 +596,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     const t = e.target.closest("button");
     if (!t) return;
     if ("entrar" in t.dataset) entrar();
-    if ("avisos" in t.dataset) pedirNotificacoes(true);
+    if ("atalho" in t.dataset) { const p = projetos.find(x => x.id === atual); if (p) criarAvisoNoIphone(p); }
     if ("sair" in t.dataset && auth) {
       if (parar) { parar(); parar = null; }
       col = null; projetos = [];

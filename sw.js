@@ -1,6 +1,5 @@
-// Guarda os arquivos do aplicativo para ele abrir mesmo sem internet
-// e mostra o aviso na tela bloqueada quando um timer termina.
-const CACHE = "tempo-dos-projetos-v8";
+// Guarda os arquivos do aplicativo para ele abrir mesmo sem internet.
+const CACHE = "tempo-dos-projetos-v9";
 const ARQUIVOS = ["./", "index.html", "config.js", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
@@ -17,25 +16,4 @@ self.addEventListener("fetch", e => {
     fetch(e.request).then(r => { const copia = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copia)); return r; })
       .catch(() => caches.match(e.request).then(r => r || caches.match("index.html")))
   );
-});
-
-// Aviso enviado pelo Firebase quando o timer chega a zero.
-self.addEventListener("push", e => {
-  let dados = {};
-  try { const j = e.data ? e.data.json() : {}; dados = j.data || (j.notification ? { titulo: j.notification.title, texto: j.notification.body } : j); } catch (er) {}
-  const titulo = dados.titulo || "Timer concluído";
-  e.waitUntil(self.registration.showNotification(titulo, {
-    body: dados.texto || "Um dos seus timers chegou ao fim.",
-    icon: "icon-192.png",
-    badge: "icon-192.png",
-    tag: dados.projeto || "timer",
-    data: { url: "./" }
-  }));
-});
-self.addEventListener("notificationclick", e => {
-  e.notification.close();
-  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(cs => {
-    for (const c of cs) if ("focus" in c) return c.focus();
-    return self.clients.openWindow("./");
-  }));
 });
