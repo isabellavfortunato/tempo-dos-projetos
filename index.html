@@ -141,6 +141,12 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
 .stop .det { color: var(--muted); font-size: .85rem; }
 .stop .x { align-self: start; }
 
+.caderno .linhas { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 6px 18px 10px; }
+.linha { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--line); }
+.linha:last-child { border-bottom: 0; }
+.linha .n { color: var(--muted); font-size: .8rem; min-width: 1.4em; text-align: right; font-variant-numeric: tabular-nums; }
+.linha input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 12px 0; font: inherit; font-size: 1rem; color: var(--ink); outline: none; }
+.linha:focus-within { border-bottom-color: var(--accent); }
 .confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
 .note { color: var(--muted); font-size: .8rem; text-align: center; }
 @media (max-width: 420px) { .stats { grid-template-columns: 1fr 1fr; } .stats .card:last-child { grid-column: span 2; } }
@@ -200,10 +206,11 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     return { id: x.id, nome: String(x.nome || "Sem nome"), tipo: x.tipo === "timer" ? "timer" : x.tipo === "cronometro" ? "cronometro" : (Array.isArray(x.sessoes) && x.sessoes.length ? "cronometro" : ""),
       meta: Number(x.meta) || 0, criadoEm: Number(x.criadoEm) || 0,
       sessoes: Array.isArray(x.sessoes) ? x.sessoes.filter(s => s && s.fim > s.inicio) : [],
-      ativo: x.ativo ? Number(x.ativo) : null };
+      ativo: x.ativo ? Number(x.ativo) : null,
+      aprendi: Array.isArray(x.aprendi) ? x.aprendi.map(String) : [] };
   }
   async function salvar(p) {
-    const corpo = { nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null };
+    const corpo = { nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null, aprendi: p.aprendi || [] };
     if (col) { try { await col.doc(p.id).set(corpo); } catch (e) { aviso("Não consegui salvar agora. Tente de novo em alguns segundos."); } }
     else gravarLocal();
   }
@@ -340,6 +347,35 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     return h;
   }
 
+  function linhasAprendi(p) {
+    const itens = (p.aprendi || []).filter(t => t.trim());
+    const total = Math.max(itens.length + 1, 5);
+    let h = "";
+    for (let i = 0; i < total; i++) {
+      h += `<label class="linha"><span class="n">${i + 1}</span><input id="ap-${i}" data-aprendi="${i}" value="${esc(itens[i] || "")}" maxlength="300" autocomplete="off" aria-label="Coisa que eu aprendi ${i + 1}"></label>`;
+    }
+    return h;
+  }
+  // grava o que foi escrito quando a linha perde o foco ou quando aperta Enter
+  function gravarAprendi(fonte) {
+    const p = projetos.find(x => x.id === atual);
+    if (!p) return;
+    const novos = [...app.querySelectorAll("[data-aprendi]")].map(el => el.value.trim()).filter(Boolean);
+    if (JSON.stringify(novos) === JSON.stringify((p.aprendi || []).filter(t => t.trim()))) return;
+    p.aprendi = novos;
+    salvar(p);
+    const cheias = novos.length, linhas = app.querySelectorAll("[data-aprendi]").length;
+    if (cheias + 1 > linhas || fonte === "enter") {
+      const prox = fonte === "enter" ? Math.min(cheias, Math.max(cheias + 1, 5) - 1) : null;
+      render();
+      if (prox !== null) { const el = document.getElementById("ap-" + prox); if (el) el.focus(); }
+    }
+  }
+  app.addEventListener("focusout", e => { if (e.target.matches && e.target.matches("[data-aprendi]")) gravarAprendi("blur"); });
+  app.addEventListener("keydown", e => {
+    if (e.key === "Enter" && e.target.matches && e.target.matches("[data-aprendi]")) { e.preventDefault(); gravarAprendi("enter"); }
+  });
+
   function telaEscolha(p) {
     return `
       <div class="top"><button class="btn ghost" data-voltar>&larr; Projetos</button>
@@ -423,6 +459,11 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
              <div class="card"><div class="label">Dias com registro</div><div class="v">${dias}</div></div>
              <div class="card"><div class="label">Média por sessão</div><div class="v">${media}</div></div>`}
       </div>
+      <section class="caderno">
+        <h2>Coisas que eu aprendi</h2>
+        <p class="sub" style="margin-bottom:12px">Escreva uma coisa por linha. Sempre sobra uma linha em branco para a próxima.</p>
+        <div class="linhas">${linhasAprendi(p)}</div>
+      </section>
       <section>
         <h2>Percurso</h2>
         <p class="sub" style="margin-bottom:16px">${timer ? "Cada parada mostra quanto faltava naquele momento, quanto já tinha sido feito e quanto durou a sessão." : "Cada parada mostra o total acumulado naquele momento e quanto durou a sessão."}</p>
@@ -448,7 +489,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     if (atual && !p) atual = null;
     const ativo = document.activeElement && document.activeElement.id;
     const guardados = {};
-    for (const id of ["novo", "es-h", "es-m", "nome-edit", "em-h", "em-m"]) { const el = document.getElementById(id); if (el) guardados[id] = el.value; }
+    for (const el of app.querySelectorAll("input[id]")) guardados[el.id] = el.value;
     app.innerHTML = p ? telaProjeto(p) : telaLista();
     for (const id in guardados) { const el = document.getElementById(id); if (el) el.value = guardados[id]; }
     if (ativo) { const el = document.getElementById(ativo); if (el) el.focus(); }
@@ -529,7 +570,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
   let fs = null, auth = null, usuario = null, parar = null, entrando = false, erroLogin = "";
   function emailAtual() { return usuario ? (usuario.email || usuario.displayName || "sua conta Google") : ""; }
   function codigoAntigo() { try { return localStorage.getItem(CK) || ""; } catch (e) { return ""; } }
-  const corpoDe = p => ({ nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null });
+  const corpoDe = p => ({ nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null, aprendi: p.aprendi || [] });
 
   // na primeira entrada, traz os projetos que estavam no código de sincronização e neste aparelho
   async function migrar(destino) {
