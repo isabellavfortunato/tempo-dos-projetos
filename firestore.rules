@@ -5,6 +5,10 @@ service cloud.firestore {
     match /usuarios/{uid}/projetos/{projeto} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
+    // Cadernos do aplicativo Info Essentials (repositório info-essentials), um documento por produto.
+    match /usuarios/{uid}/cadernos/{caderno} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
     // Aparelhos que recebem os avisos da tela bloqueada.
     match /usuarios/{uid}/aparelhos/{aparelho} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
