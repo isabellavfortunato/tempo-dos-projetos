@@ -153,6 +153,13 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
 .nota.feita input[data-nota] { text-decoration: line-through; color: var(--muted); }
 .texto-livre { display: block; width: 100%; min-height: 140px; resize: vertical; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); padding: 14px 18px; font: inherit; font-size: 1rem; line-height: 1.6; outline: none; }
 .texto-livre:focus { border-color: var(--accent); }
+.tag-painel { margin-left: 8px; font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 1px 7px; }
+.proj.arquivado { opacity: .65; }
+.aviso-arquivo { margin: 0; color: var(--muted); font-size: .9rem; background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; padding: 10px 14px; }
+.partilha { border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 99px; padding: 7px 14px; font-size: .88rem; display: inline-flex; align-items: center; gap: 8px; }
+.partilha::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid currentColor; }
+.partilha.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.partilha.on::before { background: currentColor; }
 .confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
 .note { color: var(--muted); font-size: .8rem; text-align: center; }
 @media (max-width: 420px) { .stats { grid-template-columns: 1fr 1fr; } .stats .card:last-child { grid-column: span 2; } }
@@ -179,7 +186,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
   let db = null, col = null;
   let projetos = [];   // [{id, nome, tipo:"cronometro"|"timer", meta(ms), criadoEm, sessoes:[{inicio,fim}], ativo}]
   let atual = null, confirmar = null, carregado = false, editando = false;
-  let tipoEdit = "cronometro", escolhendoTimer = false;
+  let tipoEdit = "cronometro", escolhendoTimer = false, verArquivados = false;
   const LS = "tempo-projetos-v1";
 
   // ---------- formatação ----------
@@ -214,11 +221,14 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
       sessoes: Array.isArray(x.sessoes) ? x.sessoes.filter(s => s && s.fim > s.inicio) : [],
       ativo: x.ativo ? Number(x.ativo) : null,
       aprendi: Array.isArray(x.aprendi) ? x.aprendi.map(String) : [],
+      // projetos antigos, sem a marcação, continuam visíveis no Painel da vida
+      painel: x.painel === false ? false : true,
+      arquivado: !!x.arquivado,
       notas: Array.isArray(x.notas) ? x.notas.filter(n => n && typeof n.texto === "string").map(n => ({ texto: n.texto, feito: !!n.feito })) : [],
       texto: typeof x.texto === "string" ? x.texto : "" };
   }
   async function salvar(p) {
-    const corpo = { nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null, aprendi: p.aprendi || [], notas: p.notas || [], texto: p.texto || "" };
+    const corpo = { nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null, aprendi: p.aprendi || [], notas: p.notas || [], texto: p.texto || "", painel: p.painel !== false, arquivado: !!p.arquivado };
     if (col) { try { await col.doc(p.id).set(corpo); } catch (e) { aviso("Não consegui salvar agora. Tente de novo em alguns segundos."); } }
     else gravarLocal();
   }
@@ -258,7 +268,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     const el = document.getElementById("novo");
     const nome = el.value.trim();
     if (!nome) { el.focus(); return; }
-    const p = { id: novoId(), nome, tipo: "", meta: 0, criadoEm: Date.now(), sessoes: [], ativo: null };
+    const p = { id: novoId(), nome, tipo: "", meta: 0, criadoEm: Date.now(), sessoes: [], ativo: null, painel: false, arquivado: false };
     projetos.push(p);
     el.value = "";
     atual = p.id; escolhendoTimer = false;
@@ -322,7 +332,8 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
 
   function telaLista() {
     const agora = Date.now();
-    const ordenados = [...projetos].sort((a, b) => (b.ativo ? 1 : 0) - (a.ativo ? 1 : 0) || a.criadoEm - b.criadoEm);
+    const todos = [...projetos].sort((a, b) => (b.ativo ? 1 : 0) - (a.ativo ? 1 : 0) || a.criadoEm - b.criadoEm);
+    const ordenados = todos.filter(p => !p.arquivado), arquivados = todos.filter(p => p.arquivado);
     let h = `
       <header>
         <h1>Tempo dos projetos</h1>
@@ -336,18 +347,23 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
         <div class="row"><button class="btn primary" type="submit">Criar projeto</button></div>
       </form>`;
     if (!carregado) h += `<div class="empty">Carregando seus projetos...</div>`;
-    else if (!ordenados.length) h += `<div class="empty">Você ainda não tem projetos. Escreva o nome acima e toque em Criar projeto.</div>`;
-    else h += `<div class="list">` + ordenados.map(p => {
+    else if (!ordenados.length) h += `<div class="empty">${arquivados.length ? "Todos os seus projetos estão arquivados. Crie um projeto novo acima ou abra os arquivados abaixo." : "Você ainda não tem projetos. Escreva o nome acima e toque em Criar projeto."}</div>`;
+    const cartao = p => {
       const n = p.sessoes.length;
       const estado = !p.tipo ? `<span class="chip">Escolher cronômetro ou timer</span>`
         : p.ativo ? `<span class="chip">Contando agora</span>`
         : concluido(p) ? `<span class="chip ok">Concluído</span>`
         : n ? `${n} ${n === 1 ? "parada" : "paradas"}` : "Ainda sem tempo registrado";
-      return `<button class="proj" data-abrir="${p.id}">
-        <span><span class="name">${esc(p.nome)}</span><br><span class="meta">${p.tipo ? `<span class="tipo">${ehTimer(p) ? "Timer" : "Cronômetro"}</span>` : ""}${estado}</span></span>
+      return `<button class="proj ${p.arquivado ? "arquivado" : ""}" data-abrir="${p.id}">
+        <span><span class="name">${esc(p.nome)}</span><br><span class="meta">${p.tipo ? `<span class="tipo">${ehTimer(p) ? "Timer" : "Cronômetro"}</span>` : ""}${estado}${p.painel ? `<span class="tag-painel">No Painel</span>` : ""}</span></span>
         <span class="total"><span data-total="${p.id}">${relogio(mostrado(p, agora))}</span><small>${ehTimer(p) ? "faltam" : "acumulado"}</small></span>
       </button>`;
-    }).join("") + `</div>`;
+    };
+    if (carregado && ordenados.length) h += `<div class="list">` + ordenados.map(cartao).join("") + `</div>`;
+    if (carregado && arquivados.length) {
+      h += `<div class="row" style="justify-content:center"><button class="btn ghost" data-ver-arquivados>${verArquivados ? "Esconder os arquivados" : `Ver os arquivados (${arquivados.length})`}</button></div>`;
+      if (verArquivados) h += `<div class="list">` + arquivados.map(cartao).join("") + `</div>`;
+    }
     h += col
       ? `<p class="note">Conectado como ${esc(emailAtual())}. <button class="btn ghost" data-sair>Sair</button></p>`
       : `<p class="note">Os projetos ficam salvos neste aparelho.</p>`;
@@ -497,6 +513,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
                <button class="btn danger" data-excluir-sim="${p.id}">Excluir</button>
                <button class="btn ghost" data-cancelar>Cancelar</button>`
             : `<button class="btn ghost" data-editar>Editar</button>
+               <button class="btn ghost" data-arquivar>${p.arquivado ? "Desarquivar" : "Arquivar"}</button>
                <button class="btn ghost" data-excluir="${p.id}">Excluir</button>`}
         </div>
       </div>
@@ -508,6 +525,8 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
             <div class="row"><button class="btn primary" type="submit">Salvar</button><button class="btn ghost" type="button" data-fechar-edit>Cancelar</button></div>
           </form>`
         : `<div><span class="tipo">${timer ? "Timer" : "Cronômetro"}</span><h1>${esc(p.nome)}</h1></div>`}
+      ${p.arquivado ? `<p class="aviso-arquivo">Este projeto está arquivado e não aparece na lista principal. Para trazê-lo de volta, toque em Desarquivar.</p>` : ""}
+      <div class="row"><button class="partilha ${p.painel ? "on" : ""}" data-painel aria-pressed="${p.painel}">${p.painel ? "Compartilhado com o Painel da vida" : "Compartilhar com o Painel da vida"}</button></div>
       <button class="clock ${p.ativo ? "running" : fim ? "done" : ""}" data-alternar aria-label="${p.ativo ? "Pausar" : "Iniciar"}">
         <span class="label">${timer ? "Tempo restante" : "Tempo acumulado"}</span>
         <span class="digits" id="digits">${relogio(mostrado(p, agora))}</span>
@@ -632,6 +651,18 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
     else if (d.abrir) { atual = d.abrir; confirmar = null; editando = false; escolhendoTimer = false; render(); window.scrollTo(0, 0); }
     else if ("voltar" in d) { atual = null; confirmar = null; editando = false; render(); }
     else if ("alternar" in d && p) alternar(p);
+    else if ("verArquivados" in d) { verArquivados = !verArquivados; render(); }
+    else if ("arquivar" in d && p) {
+      if (!p.arquivado && p.ativo) encerrar(p, Date.now());
+      p.arquivado = !p.arquivado;
+      aviso(p.arquivado ? "Projeto arquivado." : "Projeto de volta à lista principal.");
+      salvar(p);
+    }
+    else if ("painel" in d && p) {
+      p.painel = !p.painel;
+      aviso(p.painel ? "Este projeto agora aparece no Painel da vida." : "Este projeto não aparece mais no Painel da vida.");
+      salvar(p);
+    }
     else if ("editar" in d && p) { editando = true; tipoEdit = ehTimer(p) ? "timer" : "cronometro"; confirmar = null; render(); }
     else if ("fecharEdit" in d) { editando = false; render(); }
     else if (d.excluir) { confirmar = d.excluir; render(); }
@@ -650,7 +681,7 @@ button:focus-visible, input:focus-visible, .proj:focus-visible, .clock:focus-vis
   let fs = null, auth = null, usuario = null, parar = null, entrando = false, erroLogin = "";
   function emailAtual() { return usuario ? (usuario.email || usuario.displayName || "sua conta Google") : ""; }
   function codigoAntigo() { try { return localStorage.getItem(CK) || ""; } catch (e) { return ""; } }
-  const corpoDe = p => ({ nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null, aprendi: p.aprendi || [], notas: p.notas || [], texto: p.texto || "" });
+  const corpoDe = p => ({ nome: p.nome, tipo: p.tipo, meta: p.meta, criadoEm: p.criadoEm, sessoes: p.sessoes, ativo: p.ativo || null, aprendi: p.aprendi || [], notas: p.notas || [], texto: p.texto || "", painel: p.painel !== false, arquivado: !!p.arquivado });
 
   // na primeira entrada, traz os projetos que estavam no código de sincronização e neste aparelho
   async function migrar(destino) {
